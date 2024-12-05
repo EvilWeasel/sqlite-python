@@ -8,13 +8,14 @@ DB_FILE = 'database.db'
 
 
 class Customer:
-    def __init__(self, first_name, last_name, email):
+    def __init__(self, first_name, last_name, email, rowid=None):
+        self.rowid = rowid
         self.first_name = first_name
         self.last_name = last_name
         self.email = email
 
     def __str__(self):
-        return f"{self.first_name} {self.last_name} {self.email}"
+        return f"ID: {self.rowid}\t{self.first_name} {self.last_name} {self.email}"
 
     @staticmethod
     def print_customers_table(customers):
@@ -27,8 +28,24 @@ class Customer:
         print()
 
     @staticmethod
+    def print_customers_table_with_rowid(customers):
+        print()
+        print(f"{f'Rowid':5} | {f'First Name':20} | {
+              f'Last Name':20} | {f'Email':20}")
+        print("-" * 72)
+        for customer in customers:
+            print(f"{customer.rowid:5} | {customer.first_name:20} | {
+                  customer.last_name:20} | {customer.email:20}")
+        print()
+
+    @staticmethod
     def customer_tuple_to_list(customers):
         return [Customer(customer[0], customer[1], customer[2]) for customer in customers]
+
+    @staticmethod
+    def customer_tuple_to_list_with_rowid(customers):
+        # index 0 is the rowid if it is included in the query
+        return [Customer(customer[1], customer[2], customer[3], customer[0]) for customer in customers]
 
 
 def create_connection(db_file):
@@ -84,7 +101,11 @@ def create_customer(connection, customer: Customer):
     values (?, ?, ?)
     ''', (customer.first_name, customer.last_name, customer.email))
     connection.commit()
-    print(f"""Customer {customer} added to the database""")
+    added_customer = cursor.execute(
+        'select rowid, * from customers where rowid = last_insert_rowid()').fetchone()
+    added_customer = Customer(
+        added_customer[1], added_customer[2], added_customer[3], added_customer[0])
+    print(f"""Customer {added_customer} added to the database""")
 
 
 def create_many_customers(connection, customers: List[Customer]):
@@ -119,23 +140,154 @@ def select_all_customers(connection):
     # fetchmany(size) returns the next set of rows of the result set, where the size is the number of rows to fetch
 
 
+def select_all_with_rowid(connection):
+    cursor = connection.cursor()
+    print("Fetching all customers with rowid:")
+    cursor.execute('select rowid, * from customers')
+    customers = cursor.fetchall()
+    customers = Customer.customer_tuple_to_list_with_rowid(customers)
+    Customer.print_customers_table_with_rowid(customers)
+
+
+def select_customer_by_id(connection, id):
+    cursor = connection.cursor()
+    print(f"Fetching customer with id {id}")
+    cursor.execute('select rowid, * from customers where rowid = ?', (id,))
+    customer = cursor.fetchone()
+    if customer is None:
+        print(f"Customer with id {id} not found")
+        return
+    customer = Customer(customer[1], customer[2], customer[3], customer[0])
+    print(f"Customer with id {id}:\n{customer}")
+
+
+def select_customer_by_lastname(connection, lastname):
+    cursor = connection.cursor()
+    print(f"Fetching customers with last name {lastname}")
+    # other sql comparison operators are also valid, eg. =, <, >, <=, >=, !=
+    cursor.execute('select * from customers where last_name = ?', (lastname,))
+    customers = cursor.fetchall()
+    customers = Customer.customer_tuple_to_list(customers)
+    Customer.print_customers_table(customers)
+
+
+def select_customer_by_aol_email(connection, email):
+    cursor = connection.cursor()
+    print(f"Fetching customers with email like {email}")
+    cursor.execute('select * from customers where email like ?', (email,))
+    customers = cursor.fetchall()
+    customers = Customer.customer_tuple_to_list(customers)
+    Customer.print_customers_table(customers)
+
+
+def update_customer(connection, customer: Customer):
+    cursor = connection.cursor()
+    print(f"Updating customer {customer.first_name} {
+          customer.last_name} in the database...")
+    cursor.execute('''
+    update customers set first_name = ?, last_name = ?, email = ?
+    where rowid = ?
+    ''', (customer.first_name, customer.last_name, customer.email, customer.rowid))
+    connection.commit()
+    print(f"""Customer {customer} updated in the database""")
+
+
+def delete_customer(connection, id):
+    cursor = connection.cursor()
+    print(f"Deleting customer with id {id}")
+    cursor.execute('delete from customers where rowid = ?', (id,))
+    connection.commit()
+    print(f"Customer with id {id} deleted from the database")
+
+
+def select_ordered_by_lastname(connection):
+    cursor = connection.cursor()
+    print("Fetching all customers ordered by last name DESC:")
+    cursor.execute('select rowid, * from customers order by last_name DESC')
+    customers = cursor.fetchall()
+    customers = Customer.customer_tuple_to_list_with_rowid(customers)
+    Customer.print_customers_table_with_rowid(customers)
+
+
+def select_where_multiple_conditions(connection):
+    cursor = connection.cursor()
+    print("Fetching all customers with last_name Mustermann and email starts with e:")
+    cursor.execute(
+        'select rowid, * from customers where last_name = ? and email like ?', ('Mustermann', 'e%'))
+    customers = cursor.fetchall()
+    customers = Customer.customer_tuple_to_list_with_rowid(customers)
+    Customer.print_customers_table_with_rowid(customers)
+
+
+def select_with_limit(connection, limit):
+    cursor = connection.cursor()
+    print(f"Fetching the first {limit} customers:")
+    cursor.execute('select rowid, * from customers limit ?', (limit,))
+    customers = cursor.fetchall()
+    customers = Customer.customer_tuple_to_list_with_rowid(customers)
+    Customer.print_customers_table_with_rowid(customers)
+
+
+def drop_table(connection, table_name):
+    cursor = connection.cursor()
+    print(f"Dropping table {table_name}...")
+    cursor.execute(f"drop table if exists {table_name}")
+    connection.commit()
+    print(f"Table {table_name} dropped")
+
+
 def main():
     connection = create_connection(DB_FILE)
 
     create_customer_table(connection)
     # The execute method can be used to run SQL queries, but does not actually run the query until `.commit()` is called on the connection
     customer = Customer('Tobi', 'Wobi', 'twobi@aol.de')
-    # create_customer(connection, customer)
+    create_customer(connection, customer)
 
     customers = [
         Customer('Max', 'Mustermann', 'mmuster@aol.de'),
         Customer('Erika', 'Mustermann', 'emuster@aol.de'),
-        Customer('Henriette', 'Müller', 'hmüller@aol.de')
+        Customer('Henriette', 'Müller', 'hmüller@aol.de'),
+        Customer('Erich', 'Schmidt', 'eschmidt@outlook.de'),
+        Customer('Angela', 'Schmidt', 'aschmidt@outlook.de'),
     ]
 
-    # create_many_customers(connection, customers)
+    create_many_customers(connection, customers)
+
+    # just a bunch of select statements to demonstrate the similar functionality to mysql
 
     select_all_customers(connection)
+
+    select_all_with_rowid(connection)
+
+    # select by last name
+    select_customer_by_lastname(connection, 'Mustermann')
+
+    # select by email (like)
+    select_customer_by_aol_email(connection, '%aol.de')
+
+    # update a customer
+    customer = Customer('Tobias', 'Wehrle', 'twehrle@aol.de', 1)
+    update_customer(connection, customer)
+    # check if the customer was updated
+    select_customer_by_id(connection, 1)
+
+    # delete a customer
+    delete_customer(connection, 1)
+    # check if the customer was deleted
+    select_customer_by_id(connection, 1)
+
+    # order by lastname
+    select_ordered_by_lastname(connection)
+
+    # select where multiple conditions
+    select_where_multiple_conditions(connection)
+
+    # select with limit
+    select_with_limit(connection, 2)
+
+    # drop the table
+    drop_table(connection, 'customers')
 
     # Close the connection to avoid memory leaks and locking the database unnecessarily
     connection.close()
